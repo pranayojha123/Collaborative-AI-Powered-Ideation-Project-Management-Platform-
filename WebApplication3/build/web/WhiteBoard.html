@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Collaborative Whiteboard</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+<style>
+  :root {
+    --primary: #2563eb;
+    --secondary: #1e3a8a;
+    --bg: #f1f5f9;
+    --panel-bg: #ffffff;
+    --toolbar-bg: #e2e8f0;
+    --comment-bg: #f8fafc;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Poppins', sans-serif; }
+  body { height: 100vh; display: flex; flex-direction: column;
+   background: linear-gradient(135deg, rgba(30, 30, 47, 0.9), rgba(10, 10, 25, 0.9)),
+                  url('https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=1920&q=80');
+      background-size: cover;
+      background-position: center;}
+
+  header {
+    background: var(--primary);
+    color: white;
+    padding: 15px 25px;
+    font-size: 20px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+
+  .board-container {
+    display: flex;
+    flex-grow: 1;
+    overflow: hidden;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    background: var(--panel-bg);
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 15px 0;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+    z-index: 2;
+  }
+
+  .tool, .color-picker, .pen-size {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    background: var(--toolbar-bg);
+    color: var(--secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 10px 0;
+    cursor: pointer;
+    transition: 0.3s;
+    font-size: 20px;
+  }
+
+  .tool:hover, .tool.active { background: var(--primary); color: white; transform: translateY(-2px); }
+  input[type="color"], input[type="range"] { padding: 0; border: none; }
+
+  canvas { flex-grow: 1; background: white; cursor: crosshair; display: block; }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--panel-bg);
+    width: 300px;
+    border-left: 2px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+  }
+
+  .sidebar h3 { font-size: 18px; color: var(--secondary); margin-bottom: 10px; text-align: center; }
+  .comments { flex-grow: 1; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
+  .comment { background: var(--comment-bg); padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
+
+  .comment-input { display: flex; gap: 8px; }
+  .comment-input input { flex-grow: 1; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; }
+  .comment-input button { background: var(--primary); color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+  .comment-input button:hover { background: var(--secondary); }
+
+  @media (max-width: 768px) { .sidebar { display: none; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div><i class="fa-solid fa-chalkboard"></i> Collaborative Whiteboard</div>
+</header>
+
+<div class="board-container">
+  <div class="toolbar">
+    <input type="color" id="colorPicker" class="color-picker" title="Choose color" />
+    <input type="range" id="penSize" min="2" max="20" value="5" class="pen-size" title="Pen size" />
+    <div class="tool active" id="drawTool" title="Draw"><i class="fa-solid fa-pencil"></i></div>
+    <div class="tool" id="eraseTool" title="Eraser"><i class="fa-solid fa-eraser"></i></div>
+    <div class="tool" id="undoTool" title="Undo"><i class="fa-solid fa-rotate-left"></i></div>
+    <div class="tool" id="redoTool" title="Redo"><i class="fa-solid fa-rotate-right"></i></div>
+    <div class="tool" id="clearTool" title="Clear Board"><i class="fa-solid fa-trash"></i></div>
+  </div>
+
+  <canvas id="whiteboard"></canvas>
+
+  <div class="sidebar">
+    <h3>💬 Comments</h3>
+    <div class="comments" id="commentList"></div>
+    <div class="comment-input">
+      <input type="text" id="commentText" placeholder="Type a comment..." />
+      <button onclick="addComment()"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("whiteboard");
+const ctx = canvas.getContext("2d");
+const colorPicker = document.getElementById("colorPicker");
+const penSize = document.getElementById("penSize");
+const drawTool = document.getElementById("drawTool");
+const eraseTool = document.getElementById("eraseTool");
+const undoTool = document.getElementById("undoTool");
+const redoTool = document.getElementById("redoTool");
+const clearTool = document.getElementById("clearTool");
+
+let drawing = false, eraseMode = false, paths = [], undonePaths = [];
+
+// Resize Canvas
+function resizeCanvas() {
+    canvas.width = window.innerWidth - 400;
+    canvas.height = window.innerHeight - 80;
+    redraw();
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// Drawing Logic
+canvas.addEventListener("mousedown", e => { drawing = true; startPath(e); });
+canvas.addEventListener("mouseup", () => { drawing = false; ctx.beginPath(); });
+canvas.addEventListener("mousemove", draw);
+canvas.addEventListener("touchstart", e => { e.preventDefault(); drawing=true; startPath(e.touches[0]); });
+canvas.addEventListener("touchend", e => { drawing=false; ctx.beginPath(); });
+canvas.addEventListener("touchmove", e => { draw(e.touches[0]); });
+
+let currentPath = [];
+function startPath(e) { currentPath = []; paths.push(currentPath); draw(e); }
+function draw(e) {
+    if (!drawing) return;
+    const x = e.clientX - 100;
+    const y = e.clientY - 70;
+    ctx.lineWidth = penSize.value;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = eraseMode ? "#ffffff" : colorPicker.value;
+
+    currentPath.push({x,y,color:ctx.strokeStyle,size:ctx.lineWidth});
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+}
+
+// Redraw all paths
+function redraw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    for(const path of paths) {
+        if(!path) continue;
+        ctx.beginPath();
+        for(let i=0;i<path.length;i++) {
+            const p=path[i];
+            ctx.lineWidth=p.size;
+            ctx.strokeStyle=p.color;
+            if(i===0) ctx.moveTo(p.x,p.y);
+            else { ctx.lineTo(p.x,p.y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x,p.y); }
+        }
+    }
+}
+
+// Toolbar actions
+drawTool.addEventListener("click", () => { eraseMode=false; drawTool.classList.add("active"); eraseTool.classList.remove("active"); });
+eraseTool.addEventListener("click", () => { eraseMode=true; eraseTool.classList.add("active"); drawTool.classList.remove("active"); });
+clearTool.addEventListener("click", () => { paths=[]; undonePaths=[]; redraw(); });
+undoTool.addEventListener("click", () => { if(paths.length){ undonePaths.push(paths.pop()); redraw(); } });
+redoTool.addEventListener("click", () => { if(undonePaths.length){ paths.push(undonePaths.pop()); redraw(); } });
+
+// Comment System
+function addComment() {
+    const text = document.getElementById("commentText").value.trim();
+    if(!text) return;
+    const commentBox = document.createElement("div");
+    commentBox.className="comment";
+    commentBox.textContent=text;
+    document.getElementById("commentList").appendChild(commentBox);
+    document.getElementById("commentList").scrollTop=document.getElementById("commentList").scrollHeight;
+    document.getElementById("commentText").value="";
+}
+</script>
+</body>
+</html>
